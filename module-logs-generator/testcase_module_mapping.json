@@ -1,0 +1,72 @@
+[
+  {
+    "id": "TC-01",
+    "title": "Duplicate Container Information Alert",
+    "summary": "Customer reports receiving duplicate container information for container CMAU0000020 on PORTNET. The system should ensure unique container data to avoid confusion.",
+    "signals": [
+      "container CMAU0000020",
+      "duplicate container information",
+      "PORTNET"
+    ],
+    "category": "CNTR",
+    "rationale": "The test case involves container information duplication, which relates to container services.",
+    "_log_matches": {
+      "container_service.log": 0
+    }
+  },
+  {
+    "id": "TC-02",
+    "title": "Vessel Name Conflict Error",
+    "summary": "Customer unable to create vessel advice for MV Lion City 07 due to error VESSEL_ERR_4 indicating the vessel name is already used by another vessel advice. The system should prevent duplicate vessel names in advice creation.",
+    "signals": [
+      "VESSEL_ERR_4",
+      "vessel advice",
+      "MV Lion City 07",
+      "system vessel name"
+    ],
+    "category": "VS",
+    "rationale": "The test case concerns vessel advice and vessel name conflicts, fitting vessel-related services.",
+    "_log_matches": {
+      "vessel_registry_service.log": 0,
+      "vessel_advice_service.log": 0,
+      "berth_application_service.log": 0
+    }
+  },
+  {
+    "id": "TC-03",
+    "title": "EDI Message Stuck in Error Status",
+    "summary": "EDI message REF-IFT-0007 from sender LINE-PSA to recipient PSA-TOS is stuck in ERROR status with no acknowledgment sent. The system should handle EDI message errors and acknowledgments properly.",
+    "signals": [
+      "EDI message",
+      "REF-IFT-0007",
+      "ERROR status",
+      "acknowledgment",
+      "IFTMIN"
+    ],
+    "category": "EA",
+    "rationale": "The test case involves an EDI message with error status and acknowledgment issues, relevant to EDI/API services.",
+    "_log_matches": {
+      "api_event_service.log": 0,
+      "edi_adivce_service.log": 0
+    }
+  },
+  {
+    "id": "TC-04",
+    "title": "Vessel BAPLIE Data Inconsistency",
+    "summary": "Vessel MV PACIFIC DAWN/07E shows inconsistency between COARRI load completion and BAPLIE unit listings at Pasir Panjang Terminal 4. The system should resolve BAPLIE inconsistencies and maintain accurate vessel planning data.",
+    "signals": [
+      "MV PACIFIC DAWN/07E",
+      "BAPLIE inconsistency",
+      "COARRI",
+      "load completed",
+      "Pasir Panjang Terminal 4"
+    ],
+    "category": "VS",
+    "rationale": "The test case involves vessel data inconsistencies and terminal berthing, which are vessel-related concerns.",
+    "_log_matches": {
+      "vessel_registry_service.log": 0,
+      "vessel_advice_service.log": 0,
+      "berth_application_service.log": 0
+    }
+  }
+]
