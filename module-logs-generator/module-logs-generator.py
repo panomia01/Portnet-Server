@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Dict, List, Any
 import requests
 from logs import fetch_related_logs_with_openai_verdict
+from ai_engine.rag_setup import RAG_chunk_data_producer
+
+
 
 ENDPOINT        = "https://psacodesprint2025.azure-api.net"
 DEPLOYMENT_ID   = "gpt-4.1-mini"
@@ -224,9 +227,9 @@ def print_case(i: int, case: Dict[str, Any]) -> None:
     print("\n" + "=" * 100)
     print(f"Case {i}: {case.get('id', f'TC-{i}')}  |  Category: {case.get('category', '')}")
     print(f"Title   : {case.get('title', '')}")
-    print(f"Summary : {case.get('summary', '')}")
-    print(f"Signals : {case.get('signals', [])}")
-    print(f"Why     : {case.get('rationale', '')}")
+    # print(f"Summary : {case.get('summary', '')}")
+    # print(f"Signals : {case.get('signals', [])}")
+    # print(f"Why     : {case.get('rationale', '')}")
 
 
 def print_log_hits(log_hits: Dict[str, List[str]], max_preview: int = 40) -> None:
@@ -263,10 +266,12 @@ def main():
             base_dir=log_dir,
         )
         # print_log_hits(log_hits)
-        print("rationale is ->", c.get("rationale"))
-        print("Refers to logs? ->", verdict)
+        # print("rationale is ->", c.get("rationale"))
+        # print("Refers to logs? ->", verdict)
         print("Matched logs   ->", files)
-        print("Details        ->", json.dumps(details, indent=2))
+        # print("Details        ->", json.dumps(details, indent=2))
+
+        RAG_chunk_data_producer(c.get("title"))
 
 
     save_json(cases, Path("testcase_module_mapping.json"))
