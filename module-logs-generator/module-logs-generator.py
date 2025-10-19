@@ -1,24 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-End-to-end script:
-1) Reads a PDF of test cases
-2) Uses Azure OpenAI (chat/completions, 2025-01-01-preview) to extract structured cases:
-      { id, title, summary, signals[], category ∈ {CNTR, VS, EA}, rationale }
-3) Maps category -> logs and returns relevant log lines using hints + signals
-4) Prints to console and saves JSON (+ optional CSV)
-
-Environment variables (set these before running):
-  AOAI_ENDPOINT        e.g., https://psacodesprint2025.azure-api.net
-  AOAI_DEPLOYMENT_ID   e.g., gpt-4.1-mini  (must support input_file)
-  AOAI_API_VERSION     e.g., 2025-01-01-preview
-  AOAI_API_KEY         your key/token
-
-Typical run:
-  python3 main.py --pdf "/mnt/data/Test Cases.pdf" --out-json "/mnt/data/testcases_extracted.json"
-"""
-
 import os
 import re
 import csv
@@ -28,6 +7,7 @@ import argparse
 from pathlib import Path
 from typing import Dict, List, Any
 import requests
+from logs import fetch_related_logs_with_openai_verdict
 
 ENDPOINT        = "https://psacodesprint2025.azure-api.net"
 DEPLOYMENT_ID   = "gpt-4.1-mini"
@@ -42,7 +22,7 @@ HEADERS  = {
 
 BASE_DIR = Path(__file__).resolve().parent
 PDF_PATH_DEFAULT = BASE_DIR / "Test Cases.pdf"
-LOG_DIR     = BASE_DIR / "/Application Logs"
+LOG_DIR     = BASE_DIR / "Application Logs"
 
 # Map categories to the logs you uploaded
 CATEGORY_TO_LOGS: Dict[str, List[str]] = {
@@ -74,7 +54,7 @@ Extract each distinct test case and output STRICT JSON ONLY:
       "summary": "1–3 sentences: scenario/goal + expected behavior",
       "signals": ["concrete keywords like container numbers, EDI types, 'berth', 'advice', 'gate in', 'load', 'discharge', etc."],
       "category": "CNTR|VS|EA",
-      "rationale": "why this category fits in 1–2 sentences"
+      "rationale": "a RAG-style search query or embedding prompt combining the incident description, category context, and key signals — written as a natural question or statement that can be used to retrieve related incidents, fixes, or procedures from historical data or the knowledge base"
     }
   ]
 }
@@ -274,13 +254,21 @@ def main():
     # 2) For each case, fetch logs and print
     for i, c in enumerate(cases, 1):
         print_case(i, c)
-        log_hits = fetch_related_logs(c.get("category", ""), c.get("signals") or [], log_dir, MAX_LINES)
-        print_log_hits(log_hits)
+        # log_hits = fetch_related_logs(c.get("category", ""), c.get("signals") or [], log_dir, MAX_LINES)
+        incident_txt = "IFTMIN failed for REF-IFT-0007; segment missing during parse; correlation corr-0007"
+        print("LOG DIRECTORY ", LOG_DIR)
+        verdict, files, details = fetch_related_logs_with_openai_verdict(
+            category=c.get("category", ""),
+            incident_report_text=c.get("title"),
+            base_dir=log_dir,
+        )
+        # print_log_hits(log_hits)
+        print("rationale is ->", c.get("rationale"))
+        print("Refers to logs? ->", verdict)
+        print("Matched logs   ->", files)
+        print("Details        ->", json.dumps(details, indent=2))
 
-        # Store matched counts inline (useful if you want them in saved JSON/CSV)
-        c["_log_matches"] = {k: len(v) for k, v in log_hits.items()}
 
-    # 3) Save outputs
     save_json(cases, Path("testcase_module_mapping.json"))
     save_csv(cases, Path("testcase_module_mapping.csv"))
 

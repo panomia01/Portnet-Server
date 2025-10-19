@@ -1,0 +1,71 @@
+[
+  {
+    "id": "TC-01",
+    "title": "Duplicate Container Information Alert",
+    "summary": "Customer reports duplicate container information for container CMAU0000020 on PORTNET. The system should verify and resolve duplicate container data issues.",
+    "signals": [
+      "container CMAU0000020",
+      "duplicate container information",
+      "PORTNET"
+    ],
+    "category": "CNTR",
+    "rationale": "The test case involves container information duplication, which relates to container services.",
+    "_log_matches": {
+      "container_service.log": 0
+    }
+  },
+  {
+    "id": "TC-02",
+    "title": "Vessel Name Conflict Error",
+    "summary": "Customer unable to create vessel advice for MV Lion City 07 due to error VESSEL_ERR_4 indicating vessel name conflict. The system should prevent duplicate vessel advice names.",
+    "signals": [
+      "vessel advice",
+      "MV Lion City 07",
+      "VESSEL_ERR_4",
+      "system vessel name"
+    ],
+    "category": "VS",
+    "rationale": "The test case concerns vessel advice creation and vessel name conflicts, fitting vessel-related services.",
+    "_log_matches": {
+      "vessel_registry_service.log": 0,
+      "vessel_advice_service.log": 0,
+      "berth_application_service.log": 0
+    }
+  },
+  {
+    "id": "TC-03",
+    "title": "EDI Message Stuck in Error Status",
+    "summary": "EDI message REF-IFT-0007 is stuck in ERROR status with no acknowledgment sent. The system should detect and resolve EDI message processing issues.",
+    "signals": [
+      "EDI message",
+      "REF-IFT-0007",
+      "ERROR status",
+      "acknowledgment",
+      "IFTMIN"
+    ],
+    "category": "EA",
+    "rationale": "The test case involves an EDI message with a specific IFTMIN reference stuck in error, relevant to EDI/API services.",
+    "_log_matches": {
+      "api_event_service.log": 0,
+      "edi_adivce_service.log": 0
+    }
+  },
+  {
+    "id": "TC-04",
+    "title": "BAPLIE Inconsistency for Vessel Load Status",
+    "summary": "BAPLIE data shows inconsistency for vessel MV PACIFIC DAWN/07E with COARRI indicating load completed but BAPLIE listing units in slots. The system should reconcile BAPLIE and COARRI data accurately.",
+    "signals": [
+      "vessel MV PACIFIC DAWN/07E",
+      "BAPLIE inconsistency",
+      "COARRI",
+      "load completed",
+      "bay 14"
+    ],
+    "category": "EA",
+    "rationale": "The test case involves EDI message types BAPLIE and COARRI related to vessel load status, fitting EDI/API services.",
+    "_log_matches": {
+      "api_event_service.log": 0,
+      "edi_adivce_service.log": 0
+    }
+  }
+]
