@@ -11,6 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent                      # where your fil
 LOGS_BASE = BASE_DIR / "module_logs_generator" / "Application Logs"                                 # logs sit in /mnt/data per your upload
 MODULE_FILE = BASE_DIR / "module_logs_generator" / "module-logs-generator.py"    # note the hyphens in filename
 LOGS_PY     = BASE_DIR / "module_logs_generator" / "logs.py"                     # contains fetch_related_logs_with_openai_verdict
+AI_ENGINE     = BASE_DIR / "module_logs_generator" / "ai_engine" / "rag_setup.py"  
 
 # Azure OpenAI creds (set these as env vars in prod)
 os.environ.setdefault("AZURE_OPENAI_ENDPOINT", "https://psacodesprint2025.azure-api.net")
@@ -37,6 +38,7 @@ def _import_module_from_path(name: str, path: Path):
 # Load your existing modules (no renaming required)
 mlg = _import_module_from_path("module_logs_generator", MODULE_FILE)
 logs_mod = _import_module_from_path("logs_mod", LOGS_PY)
+ai_engine_mod = _import_module_from_path("rag_setup", AI_ENGINE)
 
 def _case_to_text(case: Dict[str, Any]) -> str:
     """Flatten a case dict to a text snippet for log correlation."""
@@ -91,6 +93,9 @@ async def import_pdf(file: UploadFile = File(...)):
                 "raw_model_decision": raw,  # keep for debugging; you can omit in prod
             })
 
+            # TODO: will need you to return the correct thing and append to results
+            results.append(ai_engine_mod.RAG_chunk_data_producer(c.get("title")) )
+
         # Optional: save CSV/JSON like the CLI did
         # mlg.save_json(cases, Path("testcase_module_mapping.json"))
         # mlg.save_csv(cases, Path("testcase_module_mapping.csv"))
@@ -102,6 +107,3 @@ async def import_pdf(file: UploadFile = File(...)):
     finally:
         try: tmp_path.unlink()
         except: pass
-
-# if __name__ == "__main__":
-#     import_pdf("testing", )
