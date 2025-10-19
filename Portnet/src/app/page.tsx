@@ -1,6 +1,7 @@
 "use client";
-
-import { useState } from "react";
+import { db } from "@/lib/firebase";
+import { collection, getDocs, addDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
+import { useState, useEffect } from "react";
 import { 
   AlertTriangle, 
   Activity, 
@@ -15,53 +16,48 @@ import {
   TrendingUp
 } from "lucide-react";
 
-// Mock data for demonstration
-const mockIncidents = [
-  {
-    id: "INC-2025-001",
-    title: "EDI COARRI Message Processing Failure",
-    module: "EDI/API",
-    severity: "High",
-    status: "Open",
-    timestamp: "2025-10-18T06:30:00Z",
-    description: "Translator rejected EDIFACT COARRI for CONTAINER_ID TEMU7891234",
-    assignee: "Sarah Chen",
-    aiScore: 0.85
-  },
-  {
-    id: "INC-2025-002", 
-    title: "Vessel Registry Connection Pool Exhausted",
-    module: "Vessel",
-    severity: "Critical",
-    status: "In Progress",
-    timestamp: "2025-10-18T05:45:00Z",
-    description: "Connection pool exhausted during peak vessel arrival window",
-    assignee: "Mike Rodriguez", 
-    aiScore: 0.92
-  },
-  {
-    id: "INC-2025-003",
-    title: "Container Status Update Delay",
-    module: "Container Report", 
-    severity: "Medium",
-    status: "Resolved",
-    timestamp: "2025-10-18T04:15:00Z",
-    description: "Container status updates delayed by 15+ minutes",
-    assignee: "Alex Kim",
-    aiScore: 0.78
-  },
-  {
-    id: "INC-2025-004",
-    title: "Duplicate Vessel Name Conflict - MV Lion City 07",
-    module: "Vessel Advice", 
-    severity: "High",
-    status: "Open",
-    timestamp: "2025-10-18T09:14:00Z",
-    description: "System Vessel Name already in use causing vessel advice creation failure",
-    assignee: "Chen Wei Ming",
-    aiScore: 0.91
-  }
-];
+// Types
+type Severity = "Critical" | "High" | "Medium" | "Low";
+
+interface Incident {
+  id: string;
+  title: string;
+  module: string;
+  severity: Severity;
+  description: string;
+  assignee?: string;
+  status: "Open" | "In Progress" | "Resolved";
+  containerId?: string;
+  vessel?: string;
+  createdAt: string;
+}
+
+interface ExtractedData {
+  title: string;
+  module: string;
+  severity: Severity;
+  description: string;
+  assignee: string;
+  containerId?: string | null;
+  vessel?: string | null;
+}
+
+interface NewIncidentFormProps {
+  rawInput: string;
+  setRawInput: (s: string) => void;
+  onCancel: () => void;
+  onAnalyze: (severity: Severity) => void;
+}
+
+function LocalTime({ iso }: { iso: string }) {
+  const [time, setTime] = useState<string>("");
+
+  useEffect(() => {
+    setTime(new Date(iso).toLocaleTimeString());
+  }, [iso]);
+
+  return <span>{time || "..."}</span>;
+}
 
 const getSeverityColor = (severity: string) => {
   switch (severity) {
@@ -80,6 +76,20 @@ const getStatusIcon = (status: string) => {
     default: return <AlertCircle className="w-4 h-4 text-gray-500" />;
   }
 };
+
+function TimeDisplay({ timestamp }: { timestamp: string }) {
+  const [time, setTime] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      setTime(new Date(timestamp).toLocaleTimeString());
+    } catch {
+      setTime(new Date(timestamp).toISOString().slice(11, 19));
+    }
+  }, [timestamp]);
+
+  return <span>{time ?? "..."}</span>;
+}
 
 // Real log data based on actual application logs
 const realLogEntries = [
@@ -195,10 +205,222 @@ const mockAISuggestions = {
   }
 };
 
+// AI Extraction
+const simulateAIExtraction = (rawInput: string): ExtractedData => {
+  const text = rawInput || "";
+  const lower = text.toLowerCase();
+
+  // Container ID pattern: 4 uppercase letters + 7 digits, e.g. CMAU0000020
+  // We'll search case-insensitive
+  const containerMatch =
+    text.match(/[A-Z]{4}\d{7}/i) ?? text.match(/[a-z]{4}\d{7}/i);
+  const containerId = containerMatch ? containerMatch[0].toUpperCase() : null;
+
+  // Vessel / Voyage pattern: mv pacific dawn/07e  (loosely)
+  // Allow "mv " optionally uppercase/lowercase
+  const vesselMatch = text.match(/mv\s+[a-z0-9\s\-]+\s*\/\s*\d+[a-z]?/i);
+  const vessel = vesselMatch ? vesselMatch[0] : null;
+
+  // Module & Title heuristics via includes
+  let module = "General";
+  let title = "New Incident";
+
+  if (lower.includes("vessel_err_4") || lower.includes("vessel advice")) {
+    module = "Vessel Advice";
+    title = vessel
+      ? `Vessel Name Conflict - ${vessel}`
+      : "Vessel Advice: Duplicate Name/Validation Error";
+  } else if (lower.includes("cmau") || lower.includes("duplicate container")) {
+    module = "Container Report";
+    title = containerId
+      ? `Duplicate Container ID ${containerId}`
+      : "Container Report: Duplicate Container / ID Conflict";
+  } else if (lower.includes("edi message") || lower.includes("ift-0007") || lower.includes("coarri") || lower.includes("edifact")) {
+    module = "EDI/API";
+    title = "EDI Message Stuck in Error";
+  } else {
+    // fallback - try smarter short summary
+    if (lower.includes("connection pool") || lower.includes("connection exhausted")) {
+      module = "Vessel";
+      title = "Connection Pool Exhausted";
+    } else {
+      // generic short description from the first sentence
+      const firstLine = text.split(/[\r\n]+/)[0] || text.slice(0, 80);
+      title = firstLine.length > 80 ? firstLine.slice(0, 77) + "..." : firstLine;
+      module = "General";
+    }
+  }
+
+  // Assignee extraction: attempt to find "To: Ops Team Duty; Jen" or "To: Jen" etc.
+  let assignee = "Ops Team Duty";
+  // attempt a few patterns
+  const assigneePattern1 = text.match(/To:\s*Ops Team Duty;?\s*([A-Za-z]+)/i);
+  const assigneePattern2 = text.match(/To:\s*([A-Za-z][A-Za-z\s]+)/i);
+  const assigneePattern3 = text.match(/Assignee:\s*([A-Za-z][A-Za-z\s]+)/i);
+  const mentionName = text.match(/\b(Jen|Vedu|Sarah|Mike|Alex|Chen|Chen Wei|Wei)\b/i);
+
+  if (assigneePattern1 && assigneePattern1[1]) {
+    assignee = assigneePattern1[1].trim();
+  } else if (assigneePattern3 && assigneePattern3[1]) {
+    assignee = assigneePattern3[1].trim();
+  } else if (assigneePattern2 && assigneePattern2[1]) {
+    // if it looks like a group or name, pick the last token
+    const maybe = assigneePattern2[1].trim();
+    // if it contains "Ops" probably group; prefer Ops Team Duty
+    if (!/ops/i.test(maybe)) {
+      assignee = maybe.split(/\s+/)[0];
+    }
+  } else if (mentionName && mentionName[0]) {
+    assignee = mentionName[0];
+  }
+
+  return {
+  title,
+  module,
+  severity: "Medium", // default or pick based on rules if you want
+  description: rawInput,
+  assignee,
+  containerId,
+  vessel,
+};
+};
+
+// New Incident Form 
+const NewIncidentForm: React.FC<NewIncidentFormProps> = ({
+  rawInput,
+  setRawInput,
+  onCancel,
+  onAnalyze,
+}) => {
+  const [severity, setSeverity] = useState<Severity>("Medium"); // sets Medium as defualt choice
+
+  return (
+    <div className="bg-white p-6 rounded-2xl shadow-lg space-y-4 w-full max-w-2xl mx-auto mt-8">
+      <h2 className="text-2xl font-semibold">Create New Incident</h2>
+
+      <textarea
+        value={rawInput}
+        onChange={(e) => setRawInput(e.target.value)}
+        placeholder="Paste raw incident text here..."
+        className="w-full h-48 border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500"
+      />
+
+      {/* Severity Dropdown */}
+      <div>
+        <label className="block text-sm font-medium mb-2">Severity</label>
+        <select
+          value={severity}
+          onChange={(e) => setSeverity(e.target.value as Severity)}
+          className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="Critical">Critical</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+      </div>
+
+      <div className="flex justify-end space-x-3 pt-4">
+        <button
+          onClick={onCancel}
+          className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => onAnalyze(severity)}
+          disabled={rawInput.length < 20}
+          className="px-5 py-2 rounded-lg bg-blue-600 text-white font-medium disabled:bg-blue-300"
+        >
+          Analyze & Create Ticket
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const deepSanitize = (obj: any): any => {
+  if (obj === null || obj === undefined) return undefined;
+  
+  if (Array.isArray(obj)) {
+    const arr = obj
+      .map(deepSanitize)
+      .filter((v) => v !== undefined);
+    return arr.length > 0 ? arr : undefined;
+  }
+
+  if (obj instanceof Date) return obj;
+  if (typeof obj === "object") {
+    const sanitizedObj: Record<string, any> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      const cleanValue = deepSanitize(value);
+      if (cleanValue !== undefined) sanitizedObj[key] = cleanValue;
+    }
+    return Object.keys(sanitizedObj).length > 0 ? sanitizedObj : undefined;
+  }
+
+  if (["string", "number", "boolean"].includes(typeof obj)) return obj;
+
+  return undefined;
+};
+
+let isSubmitting = false;
+
+const deepSanitizeAndCreateIncident = async (newIncident: any) => {
+  if (isSubmitting) return;
+  isSubmitting = true;
+
+  try {
+    const cleanIncident = deepSanitize(newIncident);
+    if (!cleanIncident) throw new Error("Incident data is empty or invalid");
+
+    console.log("Writing sanitized incident:", cleanIncident);
+
+    await addDoc(collection(db, "incidents"), {
+      ...cleanIncident,
+      createdAt: serverTimestamp(),
+    });
+  } catch (err) {
+    console.error("Firestore write error:", err);
+  } finally {
+    isSubmitting = false;
+  }
+};
+
 export default function Dashboard() {
+  const [loading, setLoading] = useState(false);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+useEffect(() => {
+  const unsubscribe = onSnapshot(collection(db, "incidents"), snapshot => {
+    const data: Incident[] = snapshot.docs.map(doc => {
+      const d = doc.data();
+      return {
+        id: d.id,
+        title: d.title,
+        module: d.module,
+        severity: d.severity,
+        description: d.description,
+        assignee: d.assignee,
+        containerId: d.containerId,
+        vessel: d.vessel,
+        status: d.status,
+        createdAt: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : d.createdAt
+      };
+    });
+    setIncidents(data.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+  });
+
+  return () => unsubscribe();
+}, []);
+
+  // existing states
   const [selectedIncident, setSelectedIncident] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [demoMode, setDemoMode] = useState(false);
+
+  // new states
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [rawInput, setRawInput] = useState("");
 
   const [filters, setFilters] = useState({
     severity: "",
@@ -206,15 +428,67 @@ export default function Dashboard() {
   });
   const [showFilterMenu, setShowFilterMenu] = useState(false);
 
-  const filteredIncidents = mockIncidents.filter(incident =>
+  const filteredIncidents = incidents.filter(incident =>
     (incident.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     incident.module.toLowerCase().includes(searchTerm.toLowerCase())) &&
     (filters.severity ? incident.severity === filters.severity : true) &&
     (filters.status ? incident.status === filters.status : true)
   );
 
+  // create next incident id (INC-YYYY-XXX)
+  const getNextIncidentId = (): string => {
+    const year = new Date().getFullYear();
+    const nums = incidents.map((inc) => {
+      const m = inc.id.match(/INC-\d{4}-(\d+)/);
+      return m ? parseInt(m[1], 10) : 0;
+    });
+    const maxNum = nums.length ? Math.max(...nums) : 0;
+    const next = maxNum + 1;
+    const padded = String(next).padStart(3, "0");
+    return `INC-${year}-${padded}`;
+  };
+
+  // handle analyze & create
+  const handleAnalyzeAndCreate = async (severity: Severity) => {
+  if (!rawInput || rawInput.length < 20) return;
+
+  setLoading(true);
+
+  try {
+    const extracted = simulateAIExtraction(rawInput);
+    const newId = getNextIncidentId();
+
+    const newIncident: Incident = {
+      id: newId,
+      title: extracted.title || "New Incident",
+      module: extracted.module || "General",
+      severity,
+      description: rawInput,
+      assignee: extracted.assignee || "Ops Team Duty",
+      containerId: extracted.containerId || undefined,
+      vessel: extracted.vessel || undefined,
+      status: "Open",
+      createdAt: new Date().toISOString(),
+    };
+
+    // 🔹 Use the deepSanitize version
+    await deepSanitizeAndCreateIncident(newIncident);
+
+    // 🔹 Update local state for immediate dashboard reflection
+    setIncidents([newIncident, ...incidents]);
+    setIsCreatingNew(false);
+    setSelectedIncident(newId);
+    setRawInput("");
+  } catch (err) {
+    console.error("Error during AI extraction or Firestore write:", err);
+    alert("Error analyzing incident. Check console for details.");
+  } finally {
+    setLoading(false);
+  }
+};
+
   const selectedIncidentData = selectedIncident ? 
-    mockIncidents.find(inc => inc.id === selectedIncident) : null;
+    incidents.find(inc => inc.id === selectedIncident) : null;
   
   const selectedIncidentSuggestions = selectedIncident ? 
     mockAISuggestions[selectedIncident as keyof typeof mockAISuggestions] : null;
@@ -312,12 +586,26 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <div className="flex-1 p-6">
-        {!selectedIncident ? (
+        {/* show NewIncidentForm if creating new */}
+        {isCreatingNew ? (
+          <NewIncidentForm
+            rawInput={rawInput}
+            setRawInput={setRawInput}
+            onCancel={() => {
+              setIsCreatingNew(false);
+              setRawInput("");
+            }}
+            onAnalyze={handleAnalyzeAndCreate}
+          />
+          ) : !selectedIncident ? (
           /* Incidents List View */
-          <div className="mb-6">
+          <>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-gray-900">Active Incidents</h2>
-              <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center space-x-2">
+              <button
+                onClick={() => setIsCreatingNew(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center space-x-2"
+              >
                 <Plus className="w-4 h-4" />
                 <span>New Incident</span>
               </button>
@@ -403,21 +691,20 @@ export default function Dashboard() {
                         <span>#{incident.id}</span>
                         <span>{incident.module}</span>
                         <span>Assigned: {incident.assignee}</span>
-                        <span>{new Date(incident.timestamp).toLocaleTimeString()}</span>
+                        <LocalTime iso={incident.createdAt} />
                       </div>
                     </div>
                     
                     <div className="flex items-center space-x-2">
                       <div className="flex items-center space-x-1">
                         <Brain className="w-4 h-4 text-purple-500" />
-                        <span className="text-sm font-medium">{Math.round(incident.aiScore * 100)}%</span>
                       </div>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+          </>
         ) : (
           /* Incident Detail View */
           selectedIncidentData && (
@@ -448,12 +735,11 @@ export default function Dashboard() {
                       <span>#{selectedIncidentData.id}</span>
                       <span>{selectedIncidentData.module}</span>
                       <span>Assigned: {selectedIncidentData.assignee}</span>
-                      <span>{new Date(selectedIncidentData.timestamp).toLocaleString()}</span>
+                      <LocalTime iso={selectedIncidentData.createdAt} />
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
                     <Brain className="w-5 h-5 text-purple-500" />
-                    <span className="text-lg font-bold">{Math.round(selectedIncidentData.aiScore * 100)}%</span>
                     <span className="text-sm text-gray-500">AI Confidence</span>
                   </div>
                 </div>
