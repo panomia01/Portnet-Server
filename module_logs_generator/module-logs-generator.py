@@ -7,8 +7,8 @@ import argparse
 from pathlib import Path
 from typing import Dict, List, Any
 import requests
-from logs import fetch_related_logs_with_openai_verdict
-from ai_engine.rag_setup import RAG_chunk_data_producer
+from module_logs_generator.logs import fetch_related_logs_with_openai_verdict
+from module_logs_generator.ai_engine.rag_setup import RAG_chunk_data_producer
 
 
 
@@ -259,7 +259,7 @@ def main():
         print_case(i, c)
         # log_hits = fetch_related_logs(c.get("category", ""), c.get("signals") or [], log_dir, MAX_LINES)
         incident_txt = "IFTMIN failed for REF-IFT-0007; segment missing during parse; correlation corr-0007"
-        print("LOG DIRECTORY ", LOG_DIR)
+        # print("LOG DIRECTORY ", LOG_DIR)
         verdict, files, details = fetch_related_logs_with_openai_verdict(
             category=c.get("category", ""),
             incident_report_text=c.get("title"),
