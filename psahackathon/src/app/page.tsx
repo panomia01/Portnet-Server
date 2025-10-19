@@ -200,9 +200,17 @@ export default function Dashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [demoMode, setDemoMode] = useState(false);
 
+  const [filters, setFilters] = useState({
+    severity: "",
+    status: "",
+  });
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+
   const filteredIncidents = mockIncidents.filter(incident =>
-    incident.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    incident.module.toLowerCase().includes(searchTerm.toLowerCase())
+    (incident.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    incident.module.toLowerCase().includes(searchTerm.toLowerCase())) &&
+    (filters.severity ? incident.severity === filters.severity : true) &&
+    (filters.status ? incident.status === filters.status : true)
   );
 
   const selectedIncidentData = selectedIncident ? 
@@ -266,10 +274,10 @@ export default function Dashboard() {
 
       {/* Stats Bar */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6">
           {/* Key Metrics */}
-          <div className="grid grid-cols-4 gap-4">
-            <div className="flex items-center space-x-3">
+          <div className="flex justify-evenly">
+            <div className="flex items-center space-x-1">
               <AlertTriangle className="w-6 h-6 text-red-500" />
               <div>
                 <p className="text-xl font-bold text-gray-900">3</p>
@@ -298,39 +306,9 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-
-          {/* Service Health Status */}
-          <div>
-            <h4 className="text-sm font-medium text-gray-900 mb-3">Service Health</h4>
-            <div className="grid grid-cols-3 gap-3 text-xs">
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                <span className="text-gray-600">API Events</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-                <span className="text-gray-600">EDI Service</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
-                <span className="text-gray-600">Vessel Registry</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                <span className="text-gray-600">Container Svc</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                <span className="text-gray-600">Berth App</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                <span className="text-gray-600">Vessel Advice</span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
+
 
       {/* Main Content */}
       <div className="flex-1 p-6">
@@ -357,11 +335,49 @@ export default function Dashboard() {
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
-              <button className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 flex items-center space-x-2">
+
+              {/* Filter Button with Dropdown */}
+              <div className="relative">
+                <button
+                onClick={() => setShowFilterMenu(!showFilterMenu)}
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 flex items-center space-x-2">
                 <Filter className="w-4 h-4" />
                 <span>Filter</span>
               </button>
+
+              {showFilterMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg p-3 space-y-2 z-10">
+                    <div>
+                      <label className="text-xs text-gray-500">Severity</label>
+                      <select
+                        className="w-full border border-gray-300 rounded-md text-sm px-2 py-1 mt-1"
+                        value={filters.severity}
+                        onChange={(e) => setFilters({ ...filters, severity: e.target.value })}
+                      >
+                        <option value="">All</option>
+                        <option value="Critical">Critical</option>
+                        <option value="High">High</option>
+                        <option value="Medium">Medium</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500">Status</label>
+                      <select
+                        className="w-full border border-gray-300 rounded-md text-sm px-2 py-1 mt-1"
+                        value={filters.status}
+                        onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                      >
+                        <option value="">All</option>
+                        <option value="Open">Open</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Resolved">Resolved</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
+            
 
             {/* Incidents List */}
             <div className="space-y-4">
