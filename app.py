@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 # ==== CONFIG ====
 
@@ -50,13 +51,61 @@ def _case_to_text(case: Dict[str, Any]) -> str:
             else: parts.append(str(v))
     return "\n".join(parts)
 
+class TextInput(BaseModel):
+    text: str
+
+@app.post("/pipeline/import-text")
+async def import_text(query:TextInput):
+    try:
+        print("start of process")
+        # Use the extractor function already defined in module-logs-generator.py
+        # It expects a file path; returns {"cases":[...], ...}
+        # tmp_path = BASE_DIR / "module_/logs_generator" / "Test Cases.pdf"
+        payload = mlg.extract_cases_from_text(query.text)
+        cases = payload.get("cases", [])
+        if not cases:
+            raise HTTPException(422, "No test cases detected in PDF.")
+
+        results = []
+        for c in cases:
+            category = (c.get("category") or "").strip().upper()
+
+            # Run correlation using your logs.py helper (it maps filenames internally)
+            verdict, matched_files, raw = logs_mod.fetch_related_logs_with_openai_verdict(
+                category=category,
+                incident_report_text=c.get("title"),
+                base_dir=LOGS_BASE,
+            )
+
+            results.append({
+                "case": c,
+                "refers_to_logs": verdict,
+                "matched_log_files": matched_files,
+                "raw_model_decision": raw,  # keep for debugging; you can omit in prod
+            })
+
+            # TODO: will need you to return the correct thing and append to results
+            results.append(ai_engine_mod.RAG_chunk_data_producer(c.get("title")) )
+
+        # Optional: save CSV/JSON like the CLI did
+        # mlg.save_json(cases, Path("testcase_module_mapping.json"))
+        # mlg.save_csv(cases, Path("testcase_module_mapping.csv"))
+
+        return {"ok": True, "count": len(results), "results": results}
+
+    except Exception as e:
+        raise HTTPException(500, f"Pipeline error: {e}")
+    # finally:
+        # try: tmp_path.unlink()
+        # except: pass
+
 @app.post("/pipeline/import-pdf")
 async def import_pdf(file: UploadFile = File(...)):
 
     if file.content_type not in ("application/pdf", "application/octet-stream"):
         raise HTTPException(400, "Please upload a PDF.")
 
-    # Save the upload to a temp file
+    # # Save the upload to a temp file
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         data = await file.read()
         if len(data) > 15 * 1024 * 1024:
@@ -77,7 +126,6 @@ async def import_pdf(file: UploadFile = File(...)):
         results = []
         for c in cases:
             category = (c.get("category") or "").strip().upper()
-            incident_text = _case_to_text(c)
 
             # Run correlation using your logs.py helper (it maps filenames internally)
             verdict, matched_files, raw = logs_mod.fetch_related_logs_with_openai_verdict(

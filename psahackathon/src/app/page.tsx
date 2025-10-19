@@ -458,6 +458,21 @@ useEffect(() => {
     const extracted = simulateAIExtraction(rawInput);
     const newId = getNextIncidentId();
 
+    const response = await fetch("http://localhost:8000/pipeline/import-text", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text: rawInput }), // Send text payload
+    });
+
+    if (!response.ok) {
+      throw new Error(`Backend returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log("Extraction result:", data);
+
     const newIncident: Incident = {
       id: newId,
       title: extracted.title || "New Incident",
@@ -470,6 +485,8 @@ useEffect(() => {
       status: "Open",
       createdAt: new Date().toISOString(),
     };
+
+
 
     // 🔹 Use the deepSanitize version
     await deepSanitizeAndCreateIncident(newIncident);

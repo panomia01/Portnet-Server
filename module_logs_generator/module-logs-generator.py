@@ -163,6 +163,37 @@ def extract_cases_with_openai(pdf_path: Path) -> dict:
         raise ValueError("Extractor did not return a 'cases' array.")
     return parsed
 
+def extract_cases_from_text(input_text: str) -> dict:
+    """
+    Extract structured cases directly from a text string using Azure OpenAI.
+    (Bypasses PDF extraction entirely.)
+    """
+    CHAT_URL = f"{ENDPOINT}/openai/deployments/{DEPLOYMENT_ID}/chat/completions?api-version={API_VERSION}"
+
+    chat_body = {
+        "model": DEPLOYMENT_ID,
+        "temperature": 0.0,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": "You are a precise extractor that outputs strict JSON only."},
+            {"role": "user", "content": EXTRACTION_PROMPT},
+            {"role": "user", "content": input_text[:200000]}  # truncate to prevent token overflow
+        ]
+    }
+
+    response = requests.post(CHAT_URL, headers=HEADERS, data=json.dumps(chat_body), timeout=180)
+    response.raise_for_status()
+
+    data = response.json()
+    content = data["choices"][0]["message"]["content"]
+    parsed = _force_json(content)
+
+    if "cases" not in parsed or not isinstance(parsed["cases"], list):
+        raise ValueError("Extractor did not return a 'cases' array.")
+
+    return parsed
+
+
 
 # --------------------------------------------------------------------------------------
 # Log search (category hints + dynamic signals)
