@@ -1,7 +1,7 @@
 "use client";
-import { db } from "@/lib/firebase";
+import { db } from "../lib/firebase";
 import { collection, getDocs, addDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { 
   AlertTriangle, 
   Activity, 
@@ -15,6 +15,7 @@ import {
   AlertCircle,
   TrendingUp
 } from "lucide-react";
+import { LoadingOverlay } from "./LoadingOverlay";
 
 // Types
 type Severity = "Critical" | "High" | "Medium" | "Low";
@@ -413,10 +414,31 @@ useEffect(() => {
   return () => unsubscribe();
 }, []);
 
+// state
+const [overlayOpen, setOverlayOpen] = useState(false);
+const [steps, setSteps] = useState([
+  { label: "Extracting structured fields", done: false },
+  { label: "Sending to backend (RAG)", done: false },
+  { label: "Creating ticket", done: false },
+]);
+const abortRef = useRef<AbortController | null>(null);
+
+// tiny helper
+const mark = (i: number) => setSteps(s => s.map((x, idx) => (idx === i ? { ...x, done: true } : x)));
+
+function resetSteps() {
+  setSteps(s => s.map(x => ({ ...x, done: false })));
+}
+
+
   // existing states
   const [selectedIncident, setSelectedIncident] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [demoMode, setDemoMode] = useState(false);
+
+  // new states
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [rawInput, setRawInput] = useState("");
 
   const [filters, setFilters] = useState({
     severity: "",
@@ -424,7 +446,7 @@ useEffect(() => {
   });
   const [showFilterMenu, setShowFilterMenu] = useState(false);
 
-  const filteredIncidents = mockIncidents.filter(incident =>
+  const filteredIncidents = incidents.filter(incident =>
     (incident.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     incident.module.toLowerCase().includes(searchTerm.toLowerCase())) &&
     (filters.severity ? incident.severity === filters.severity : true) &&
@@ -444,37 +466,73 @@ useEffect(() => {
     return `INC-${year}-${padded}`;
   };
 
-  // handle analyze & create
-  const handleAnalyzeAndCreate = async (severity: Severity) => {
+  async function fetchWithTimeout(url: string, opts: RequestInit = {}, ms = 60000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  const merged = { ...opts, signal: controller.signal };
+  try {
+    const res = await fetch(url, merged);
+    return res;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
+const [data, setData] = useState<any>(null);
+
+useEffect(() => {
+  fetch("/api/your-endpoint")
+    .then(res => res.json())
+    .then(json => setData(json))
+    .catch(err => console.error("Error fetching:", err));
+}, []);
+
+const extractSummary = (resp: any) =>
+  resp?.results?.find((r: any) => r?.case?.summary)?.case.summary
+  ?? "No summary found";
+
+
+const handleAnalyzeAndCreate = async (severity: Severity) => {
   if (!rawInput || rawInput.length < 20) return;
 
   setLoading(true);
+  setOverlayOpen(true);
+  resetSteps();
+
+  abortRef.current?.abort();                  // cancel any previous run
+  const runController = new AbortController();
+  abortRef.current = runController;
 
   try {
+    // step 1: local quick parse
     const extracted = simulateAIExtraction(rawInput);
-    const newId = getNextIncidentId();
+    mark(0);
 
-    const response = await fetch("http://localhost:8000/pipeline/import-text", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    // step 2: backend RAG
+    const res = await fetchWithTimeout(
+      "http://localhost:8000/pipeline/import-text",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: rawInput }),
+        signal: runController.signal,
       },
-      body: JSON.stringify({ text: rawInput }), // Send text payload
-    });
+      60000 // 60s timeout
+    );
 
-    if (!response.ok) {
-      throw new Error(`Backend returned ${response.status}`);
-    }
-
-    const data = await response.json();
+    if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+    setData(await res.json());
     console.log("Extraction result:", data);
+    mark(1);
 
+    // step 3: create incident locally/Firestore
+    const newId = getNextIncidentId();
     const newIncident: Incident = {
       id: newId,
       title: extracted.title || "New Incident",
       module: extracted.module || "General",
       severity,
-      description: rawInput,
+      description: extractSummary(data),
       assignee: extracted.assignee || "Ops Team Duty",
       containerId: extracted.containerId || undefined,
       vessel: extracted.vessel || undefined,
@@ -482,23 +540,37 @@ useEffect(() => {
       createdAt: new Date().toISOString(),
     };
 
-
-
-    // 🔹 Use the deepSanitize version
     await deepSanitizeAndCreateIncident(newIncident);
+    mark(2);
 
-    // 🔹 Update local state for immediate dashboard reflection
+    // optimistic UI update
     setIncidents([newIncident, ...incidents]);
     setIsCreatingNew(false);
     setSelectedIncident(newId);
     setRawInput("");
-  } catch (err) {
+  } catch (err: any) {
     console.error("Error during AI extraction or Firestore write:", err);
-    alert("Error analyzing incident. Check console for details.");
+    alert(err?.name === "AbortError" ? "Canceled." : "Error analyzing incident. Check console for details.");
   } finally {
     setLoading(false);
+    setOverlayOpen(false);
+    abortRef.current = null;
   }
 };
+
+const [showModal, setShowModal] = useState(false);
+const [solution, setSolution] = useState("");
+
+const GetAIRecommendation = () => {
+  const suggestion =
+    data?.results?.find((r: any) => "rag_suggestion" in r)?.rag_suggestion ??
+    "No solution found";
+  setSolution(suggestion);
+  setShowModal(true);
+};
+
+
+
 
   const selectedIncidentData = selectedIncident ? 
     incidents.find(inc => inc.id === selectedIncident) : null;
@@ -792,9 +864,37 @@ useEffect(() => {
                       ))}
                     </div>
                     <div className="mt-4 space-y-2">
-                      <button className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 px-4 rounded-md text-sm font-medium">
-                        🤖 Apply AI Recommendations
+                      <button onClick={GetAIRecommendation} className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 px-4 rounded-md text-sm font-medium">
+                        🤖 Get AI Recommendations
                       </button>
+                      {showModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 transition-opacity animate-fade-in">
+                          <div className="bg-white rounded-xl shadow-2xl w-11/12 md:w-1/2 p-6 space-y-4 border border-purple-200">
+                            <h2 className="text-lg font-bold text-purple-700 flex items-center space-x-2">
+                              <span>🤖</span>
+                              <span>AI Recommendations</span>
+                            </h2>
+
+                            <ul className="list-disc list-inside space-y-2 text-gray-700 text-sm leading-relaxed">
+                              {solution
+                                .split(/\n/)
+                                .filter(line => line.trim().length > 0)
+                                .map((line, i) => (
+                                  <li key={i}>{line.trim()}</li>
+                                ))}
+                            </ul>
+
+                            <div className="flex justify-end pt-4">
+                              <button
+                                onClick={() => setShowModal(false)}
+                                className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                              >
+                                Close
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                       <button className="w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-md text-sm font-medium">
                         🚨 Escalate to L3/SME
                       </button>
@@ -875,6 +975,15 @@ useEffect(() => {
           )
         )}
       </div>
+      <LoadingOverlay
+        open={overlayOpen}
+        steps={steps}
+        onCancel={() => {
+          abortRef.current?.abort();
+          setOverlayOpen(false);
+          setLoading(false);
+        }}
+      />
     </div>
   );
 }

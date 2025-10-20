@@ -146,7 +146,7 @@ def extract_cases_with_openai(pdf_path: Path) -> dict:
     CHAT_URL = f"{ENDPOINT}/openai/deployments/{DEPLOYMENT_ID}/chat/completions?api-version={API_VERSION}"
     chat_body = {
         "model": DEPLOYMENT_ID,
-        "temperature": 0.0,
+        "temperature": 0.0, 
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": "You are a precise extractor that outputs strict JSON only."},
