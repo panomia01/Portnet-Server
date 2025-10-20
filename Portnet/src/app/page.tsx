@@ -418,17 +418,13 @@ useEffect(() => {
   const [searchTerm, setSearchTerm] = useState("");
   const [demoMode, setDemoMode] = useState(false);
 
-  // new states
-  const [isCreatingNew, setIsCreatingNew] = useState(false);
-  const [rawInput, setRawInput] = useState("");
-
   const [filters, setFilters] = useState({
     severity: "",
     status: "",
   });
   const [showFilterMenu, setShowFilterMenu] = useState(false);
 
-  const filteredIncidents = incidents.filter(incident =>
+  const filteredIncidents = mockIncidents.filter(incident =>
     (incident.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     incident.module.toLowerCase().includes(searchTerm.toLowerCase())) &&
     (filters.severity ? incident.severity === filters.severity : true) &&
