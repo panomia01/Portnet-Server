@@ -8,19 +8,21 @@ const firebaseConfig = {
   apiKey: "AIzaSyDQ_UgV14iMVshNdOx43gwXOuAB4ls5Avs",
   authDomain: "portnetincidents.firebaseapp.com",
   projectId: "portnetincidents",
-  storageBucket: "portnetincidents.firebasestorage.app",
+  storageBucket: "portnetincidents.appspot.com", // ✅ corrected
   messagingSenderId: "950715328655",
   appId: "1:950715328655:web:7cbccc642ead7e735268fa",
   measurementId: "G-T9V8MYY4FL",
 };
 
-const app = initializeApp(firebaseConfig);
+// Initialize app safely (avoid duplicate init during hot reload)
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// Only initialize analytics in the browser
+// Analytics only in browser
 let analytics;
 if (typeof window !== "undefined") {
   analytics = getAnalytics(app);
 }
 
-// Firestore works on both server & client
+// Firestore works everywhere
 export const db = getFirestore(app);
+export { app };
