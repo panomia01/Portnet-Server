@@ -907,20 +907,20 @@ const GetAIRecommendation = () => {
               {selectedIncidentSuggestions && (
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                   {/* AI Log Analysis */}
-                  <div className="bg-white rounded-lg border border-gray-200 p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">🤖 AI Log Analysis</h3>
-                    <div className="space-y-2">
-                      {selectedIncidentSuggestions.logAnalysis.map((analysis, index) => (
-                        <div key={index} className="flex items-start space-x-3 p-3 bg-orange-50 rounded border-l-4 border-orange-400">
-                          <AlertCircle className="w-4 h-4 text-orange-500 mt-0.5" />
-                          <span className="text-sm text-gray-700 font-mono">{analysis}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                    {/* <div className="bg-white rounded-lg border border-gray-200 p-6">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">🤖 AI Log Analysis</h3>
+                      <div className="space-y-2">
+                        {selectedIncidentSuggestions.logAnalysis.map((analysis, index) => (
+                          <div key={index} className="flex items-start space-x-3 p-3 bg-orange-50 rounded border-l-4 border-orange-400">
+                            <AlertCircle className="w-4 h-4 text-orange-500 mt-0.5" />
+                            <span className="text-sm text-gray-700 font-mono">{analysis}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div> */}
 
                   {/* Real Log Entries */}
-                  <div className="bg-white rounded-lg border border-gray-200 p-6">
+                  {/* <div className="bg-white rounded-lg border border-gray-200 p-6">
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">📋 Related Log Entries</h3>
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                       {selectedIncidentSuggestions.logEntries?.map((logEntry, index) => (
@@ -947,7 +947,7 @@ const GetAIRecommendation = () => {
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </div> */}
                 </div>
               )}
 
@@ -955,19 +955,19 @@ const GetAIRecommendation = () => {
               {selectedIncidentSuggestions && (
                 <div className="bg-white rounded-lg border border-gray-200 p-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">🚀 Quick Actions</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
                     <button className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md text-sm font-medium flex items-center justify-center space-x-2">
                       <span>📊</span>
                       <span>View Full Logs</span>
                     </button>
-                    <button className="bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-md text-sm font-medium flex items-center justify-center space-x-2">
+                    {/* <button className="bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-md text-sm font-medium flex items-center justify-center space-x-2">
                       <span>✅</span>
                       <span>Mark as Resolved</span>
                     </button>
                     <button className="bg-purple-600 hover:bg-purple-700 text-white py-3 px-4 rounded-md text-sm font-medium flex items-center justify-center space-x-2">
                       <span>🔄</span>
                       <span>Run Diagnostics</span>
-                    </button>
+                    </button> */}
                   </div>
                 </div>
               )}
