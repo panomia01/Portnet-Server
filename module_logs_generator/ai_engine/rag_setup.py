@@ -13,6 +13,10 @@ API_VERSION = "2023-05-15"
 API_KEY = "ae8ca593ce0e4bf983cd8730fbc15df4"
 
 BASE_DIR = Path(__file__).resolve().parent
+
+CHROMA_PATH = BASE_DIR / "chroma_db"
+COLLECTION_NAME = "incident_kb"
+
 EXCEL_FILE = BASE_DIR / "incident_case_log_categorized.xlsx"
 WORD_FILE = BASE_DIR / "Knowledge Base.docx"
 
@@ -28,24 +32,21 @@ def get_embedding(text):
     response.raise_for_status()
     return response.json()["data"][0]["embedding"]
 
-def RAG_chunk_data_producer(Query:str):
-    # wrap to chroma embedding
-    azure_ef = embedding_functions.OpenAIEmbeddingFunction(
-        api_key=API_KEY,
-        api_base=ENDPOINT,
-        api_type="azure",
-        api_version=API_VERSION,
-        deployment_id=DEPLOYMENT_ID,
-        model_name="text-embedding-3-small",  
-    )
+# wrap to chroma embedding
+azure_ef = embedding_functions.OpenAIEmbeddingFunction(
+    api_key=API_KEY,
+    api_base=ENDPOINT,
+    api_type="azure",
+    api_version=API_VERSION,
+    deployment_id=DEPLOYMENT_ID,
+    model_name="text-embedding-3-small",  
+)
 
+def ingest_knowledge_base():
     # initialise chroma
-    client = chromadb.Client()
-
-    # delete old collection if exists
-    if "incident_kb" in [c.name for c in client.list_collections()]:
-        client.delete_collection("incident_kb")
-    collection = client.create_collection("incident_kb", embedding_function=azure_ef)
+    client = chromadb.PersistentClient(path=CHROMA_PATH)
+    collection = client.get_or_create_collection(COLLECTION_NAME, embedding_function=azure_ef)
+    print("Collection ready:", collection.name)
 
     # process excel file
     df = pd.read_excel(EXCEL_FILE)
@@ -85,27 +86,46 @@ def RAG_chunk_data_producer(Query:str):
         start += chunk_size - chunk_overlap
         i += 1
 
-    # example query
-    query = "Container milestones out-of-order and EDI mismatch at port"
+
+def RAG_chunk_data_producer(query:str):
+    client = chromadb.PersistentClient(path=CHROMA_PATH)
+
+    collections = [c.name for c in client.list_collections()]
+    if COLLECTION_NAME not in collections:
+        print(f"Collection '{COLLECTION_NAME}' not found. Running ingest_knowledge_base()...")
+        ingest_knowledge_base()
+
+    collection = client.get_collection(COLLECTION_NAME, embedding_function=azure_ef)
     results = collection.query(query_texts=[query], n_results=5)
 
-    # prints retrived relevant chunks
-    for doc_text, metadata in zip(results['documents'][0], results['metadatas'][0]):
-        print("Source:", metadata.get("source"))
-        if "category" in metadata:
-            print("Category:", metadata["category"])
-        print(doc_text[:500], "\n---\n")
+    # gather context
+    combined_context = "\n\n".join(results["documents"][0])
+    sources = [meta.get("source", "unknown") for meta in results["metadatas"][0]]
 
-    # print ai summary
-    for doc_text in results['documents'][0]:
-        prompt = f"Summarize this incident in 2-3 lines:\n\n{doc_text}"
-        data = {
-            "messages": [
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            "max_tokens": 150
-        }
-        url = f"{ENDPOINT}/openai/deployments/gpt-4.1-mini/chat/completions?api-version=2025-01-01-preview"
-        resp = requests.post(url, headers={"Content-Type":"application/json", "api-key": API_KEY}, data=json.dumps(data))
-        print(resp.json()['choices'][0]['message']['content'])
+    prompt = f"""
+    Given the following context from incident logs and knowledge base, 
+    provide short actionable bullet-point suggestions to resolve this issue:
+
+    Issue: {query}
+
+    Context:
+    {combined_context}
+
+    Make the suggestions concise but specific (2-4 bullet points).
+    """
+
+    data = {
+        "messages": [
+            {"role": "system", "content": "You are an experienced L2 support engineer providing troubleshooting suggestions."},
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 250
+    }
+
+    url = f"{ENDPOINT}/openai/deployments/gpt-4.1-mini/chat/completions?api-version=2025-01-01-preview"
+    resp = requests.post(url, headers={"Content-Type": "application/json", "api-key": API_KEY}, data=json.dumps(data))
+    rag_output = resp.json()["choices"][0]["message"]["content"]
+    return {
+        "rag_suggestion": rag_output.strip(),
+        "rag_sources": sources
+    }

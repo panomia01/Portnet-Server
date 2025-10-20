@@ -245,6 +245,8 @@ def save_csv(cases: List[Dict[str, Any]], out_path: Path) -> None:
             "summary": c.get("summary", ""),
             "rationale": c.get("rationale", ""),
             "log_files": "; ".join(CATEGORY_TO_LOGS.get(c.get("category", ""), [])),
+            "rag_suggestion": c.get("rag_suggestion", ""),
+            "rag_sources": "; ".join(c.get("rag_sources", [])),
         })
     with open(out_path, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else
@@ -302,7 +304,10 @@ def main():
         print("Matched logs   ->", files)
         # print("Details        ->", json.dumps(details, indent=2))
 
-        RAG_chunk_data_producer(c.get("title"))
+        # RAG solution
+        rag_result = RAG_chunk_data_producer(c.get("title"))
+        c["rag_suggestion"] = rag_result["rag_suggestion"]
+        c["rag_sources"] = rag_result["sources"]
 
 
     save_json(cases, Path("testcase_module_mapping.json"))
